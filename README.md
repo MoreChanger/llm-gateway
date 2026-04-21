@@ -24,7 +24,6 @@ Claude Code  ──►  localhost:8087  ──►  上游 Anthropic / OpenAI 兼
 **1. 检查 `.env`**
 
 ```bash
-PROVIDER=jdcloud   # 选择 provider
 PORT=8087          # 宿主机监听端口
 ```
 
@@ -44,7 +43,7 @@ docker compose up -d
 
 ```bash
 make build
-PROVIDER=jdcloud CONFIG_FILE=config.yaml ./bin/llm-gateway
+CONFIG_FILE=config.yaml ./bin/llm-gateway
 ```
 
 ---
@@ -73,7 +72,7 @@ upstreams:
     url: https://modelservice.jdcloud.com/coding/anthropic
     protocol: anthropic
   openai:
-    url: https://modelservice.jdcloud.com/coding/openai/v1
+    url: https://modelservice.jdcloud.com/coding/openai
     protocol: openai
 
 routes:
@@ -83,63 +82,22 @@ routes:
     upstream: openai
 
 overload_rules:
+  - status: 400
+    body_contains: "overloaded"
+    max_retries: 10
+    delay: 2s
+    jitter: 1s
   - status: 429
     max_retries: 10
     delay: 2s
     jitter: 1s
+  - status: 500
+    max_retries: 5
+    delay: 3s
+    jitter: 1s
 ```
 
 客户端只需配置代理地址 `http://127.0.0.1:8087`，协议识别完全自动。
-
----
-
-## 内置 Provider
-
-`config.yaml` 已预置以下 provider，通过 `.env` 的 `PROVIDER` 字段选择。
-
-| Provider | 协议 | 上游 URL | 过载触发条件 |
-|---|---|---|---|
-| `jdcloud` | Anthropic | `https://modelservice.jdcloud.com/coding/anthropic` | `400` + body 含 `overloaded` 或 `Too many requests` |
-
----
-
-## 自定义 Provider
-
-在 `config.yaml` 的 `providers` 下新增条目，修改 `.env` 中的 `PROVIDER` 后重启即可。
-
-**Anthropic 兼容接口示例：**
-
-```yaml
-providers:
-  my-anthropic:
-    upstream: https://your-anthropic-endpoint.com
-    protocol: anthropic   # 默认值，可省略
-    overload_rules:
-      - status: 529
-        max_retries: 10
-        delay: 2s
-        jitter: 1s
-```
-
-**OpenAI 兼容接口示例：**
-
-```yaml
-providers:
-  my-openai:
-    upstream: https://api.openai.com
-    protocol: openai
-    overload_rules:
-      - status: 429
-        max_retries: 8
-        delay: 5s
-        jitter: 2s
-      - status: 503
-        max_retries: 5
-        delay: 3s
-        jitter: 1s
-```
-
-> **注意**：使用 `protocol: openai` 时，流式请求的 token 统计需要客户端在请求 body 中携带 `"stream_options": {"include_usage": true}`，否则流式响应不返回用量数据（这是 OpenAI 接口的行为）。非流式请求无此限制。
 
 ---
 
@@ -164,36 +122,40 @@ providers:
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `PROVIDER` | `jdcloud` | 选择 provider，覆盖 `config.yaml` 中的 `active` 字段 |
 | `PORT` | `8087` | 宿主机监听端口 |
-| `UPSTREAM_URL` | — | 覆盖当前 provider 的上游 URL |
 | `STATS_DB` | — | 覆盖统计数据库路径，留空则使用 `config.yaml` 中的 `stats_db` |
 
 ### config.yaml 完整结构
 
 ```yaml
-listen: :8080          # 容器内监听地址，无需修改
-active: jdcloud        # 默认 provider，可被 PROVIDER 覆盖
+listen: :8080              # 容器内监听地址，无需修改
 stats_db: ./data/stats.db  # SQLite 路径，留空禁用统计
 
-providers:
-  jdcloud:
-    upstream: https://modelservice.jdcloud.com/coding/anthropic
-    # protocol 省略则默认 anthropic
-    overload_rules:
-      - status: 400
-        body_contains: "overloaded"
-        max_retries: 10   # 省略则使用默认值 10
-        delay: 2s         # 省略则使用默认值 2s
-        jitter: 1s        # 省略则使用默认值 1s
-      - status: 400
-        body_contains: "Too many requests"
-        max_retries: 10
-        delay: 2s
-        jitter: 1s
-```
+upstreams:
+  anthropic:
+    url: https://modelservice.jdcloud.com/coding/anthropic
+    protocol: anthropic    # 可选，默认 anthropic
+  openai:
+    url: https://modelservice.jdcloud.com/coding/openai
+    protocol: openai
 
-每条 `overload_rules` 独立配置重试策略；`max_retries`、`delay`、`jitter` 均可省略，使用内置默认值。
+routes:
+  - path: /v1/messages
+    upstream: anthropic
+  - path: /v1/chat/completions
+    upstream: openai
+
+overload_rules:
+  - status: 400
+    body_contains: "overloaded"
+    max_retries: 10   # 省略则使用默认值 10
+    delay: 2s         # 省略则使用默认值 2s
+    jitter: 1s        # 省略则使用默认值 1s
+  - status: 429
+    max_retries: 10
+    delay: 2s
+    jitter: 1s
+```
 
 ### 支持的 protocol
 
@@ -201,3 +163,27 @@ providers:
 |---|---|
 | `anthropic`（默认）| 京东云、官方 Anthropic 及所有 Anthropic 兼容接口 |
 | `openai` | OpenAI Chat Completions 格式的接口（流式统计需请求带 `stream_options.include_usage: true`） |
+
+---
+
+## 旧版配置格式（仍然支持）
+
+如果只需要单个上游，可以使用旧版配置格式：
+
+```yaml
+listen: :8080
+active: jdcloud
+stats_db: ./data/stats.db
+
+providers:
+  jdcloud:
+    upstream: https://modelservice.jdcloud.com/coding/anthropic
+    overload_rules:
+      - status: 400
+        body_contains: "overloaded"
+        max_retries: 10
+        delay: 2s
+        jitter: 1s
+```
+
+环境变量 `PROVIDER` 可覆盖 `active` 字段。
