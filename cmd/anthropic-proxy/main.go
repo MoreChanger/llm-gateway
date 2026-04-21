@@ -23,21 +23,37 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Try multi-config first
+	multiCfg, err := config.LoadMulti(*configFile)
+	if err != nil {
+		slog.Error("configuration error", "err", err)
+		os.Exit(1)
+	}
+
+	if multiCfg != nil {
+		runMulti(multiCfg)
+		return
+	}
+
+	// Fall back to single-provider config
 	cfg, err := config.Load(*configFile)
 	if err != nil {
 		slog.Error("configuration error", "err", err)
 		os.Exit(1)
 	}
 
-	slog.Info("anthropic-proxy starting",
+	runSingle(cfg)
+}
+
+func runSingle(cfg *config.Config) {
+	slog.Info("anthropic-proxy starting (single-provider mode)",
 		"provider", cfg.ProviderName,
 		"listen", cfg.ListenAddr,
 		"upstream", cfg.Upstream,
-		"overload_rules", fmtRules(cfg),
-	)
+		"overload_rules", fmtRules(cfg))
 
-	// Initialize token usage stats (optional)
 	var sdb *stats.DB
+	var err error
 	if cfg.StatsDB != "" {
 		sdb, err = stats.Open(cfg.StatsDB)
 		if err != nil {
@@ -55,6 +71,38 @@ func main() {
 		mux.HandleFunc("/stats", sdb.UIHandler())
 	}
 	mux.Handle("/", proxy.New(cfg, client, sdb))
+
+	if err := http.ListenAndServe(cfg.ListenAddr, mux); err != nil {
+		slog.Error("server stopped", "err", err)
+		os.Exit(1)
+	}
+}
+
+func runMulti(cfg *config.MultiConfig) {
+	slog.Info("anthropic-proxy starting (multi-protocol mode)",
+		"listen", cfg.ListenAddr,
+		"upstreams", len(cfg.Upstreams),
+		"routes", len(cfg.Routes))
+
+	var sdb *stats.DB
+	var err error
+	if cfg.StatsDB != "" {
+		sdb, err = stats.Open(cfg.StatsDB)
+		if err != nil {
+			slog.Error("stats: failed to open db", "path", cfg.StatsDB, "err", err)
+			os.Exit(1)
+		}
+		defer sdb.Close()
+		slog.Info("stats enabled", "db", cfg.StatsDB, "endpoint", "/stats")
+	}
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	mux := http.NewServeMux()
+	if sdb != nil {
+		mux.HandleFunc("/stats/data", sdb.Handler())
+		mux.HandleFunc("/stats", sdb.UIHandler())
+	}
+	mux.Handle("/", proxy.NewMulti(cfg, client, sdb))
 
 	if err := http.ListenAndServe(cfg.ListenAddr, mux); err != nil {
 		slog.Error("server stopped", "err", err)
