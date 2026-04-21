@@ -49,6 +49,50 @@ PROVIDER=jdcloud CONFIG_FILE=config.yaml ./bin/anthropic-proxy
 
 ---
 
+## 多协议自动路由（推荐）
+
+一个代理实例同时支持 Anthropic 和 OpenAI 协议，根据请求路径自动识别并路由。
+
+```
+Claude Code（Anthropic）     Cursor（OpenAI）
+        ↓                          ↓
+        └──────── 127.0.0.1:8087 ──┘
+                    ↓
+              自动识别协议
+                    ↓
+    ┌───────────────┴───────────────┐
+    ↓                               ↓
+Anthropic 上游                  OpenAI 上游
+```
+
+**配置示例：**
+
+```yaml
+upstreams:
+  anthropic:
+    url: https://modelservice.jdcloud.com/coding/anthropic
+    protocol: anthropic
+  openai:
+    url: https://modelservice.jdcloud.com/coding/openai/v1
+    protocol: openai
+
+routes:
+  - path: /v1/messages
+    upstream: anthropic
+  - path: /v1/chat/completions
+    upstream: openai
+
+overload_rules:
+  - status: 429
+    max_retries: 10
+    delay: 2s
+    jitter: 1s
+```
+
+客户端只需配置代理地址 `http://127.0.0.1:8087`，协议识别完全自动。
+
+---
+
 ## 内置 Provider
 
 `config.yaml` 已预置以下 provider，通过 `.env` 的 `PROVIDER` 字段选择。
