@@ -9,7 +9,7 @@ upstreams:
     url: https://modelservice.jdcloud.com/coding/anthropic
     protocol: anthropic
   openai:
-    url: https://modelservice.jdcloud.com/coding/openai/v1
+    url: https://modelservice.jdcloud.com/coding/openai
     protocol: openai
 
 routes:
