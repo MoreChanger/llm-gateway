@@ -4,6 +4,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -32,6 +33,141 @@ type handler struct {
 	client *http.Client
 	stats  *stats.DB
 	parser stats.Parser
+}
+
+// NewMulti returns an http.Handler that routes requests based on path,
+// automatically selecting the appropriate upstream and parser.
+func NewMulti(cfg *config.MultiConfig, client *http.Client, sdb *stats.DB) http.Handler {
+	return &multiHandler{
+		cfg:    cfg,
+		client: client,
+		stats:  sdb,
+	}
+}
+
+type multiHandler struct {
+	cfg    *config.MultiConfig
+	client *http.Client
+	stats  *stats.DB
+}
+
+func (h *multiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Find matching route
+	var upstream *config.Upstream
+	var upstreamName string
+	var parser stats.Parser
+
+	for _, route := range h.cfg.Routes {
+		if r.URL.Path == route.Path || strings.HasPrefix(r.URL.Path, route.Path+"/") {
+			u, ok := h.cfg.Upstreams[route.Upstream]
+			if !ok {
+				http.Error(w, fmt.Sprintf(`{"error":"upstream %q not found"}`, route.Upstream), http.StatusInternalServerError)
+				return
+			}
+			upstream = &u
+			upstreamName = route.Upstream
+			parser = stats.NewParser(u.Protocol)
+			break
+		}
+	}
+
+	if upstream == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, `{"error":"unsupported path","path":%q}`, r.URL.Path)
+		return
+	}
+
+	target := upstream.URL + r.RequestURI
+	start := time.Now()
+
+	slog.Info("->", "method", r.Method, "path", r.URL.Path, "route", upstreamName)
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	r.Body.Close()
+
+	var rule *provider.Rule
+
+	for attempt := 0; ; attempt++ {
+		if rule != nil {
+			if attempt > rule.MaxRetries {
+				slog.Warn("max retries reached, giving up", "upstream", upstreamName, "max", rule.MaxRetries)
+				break
+			}
+			wait := rule.RetryDelay + time.Duration(attempt)*rule.RetryJitter
+			slog.Info("retry", "upstream", upstreamName, "attempt", attempt, "max", rule.MaxRetries, "wait", wait, "path", r.URL.Path)
+
+			select {
+			case <-r.Context().Done():
+				http.Error(w, "client disconnected", http.StatusGatewayTimeout)
+				return
+			case <-time.After(wait):
+			}
+		}
+
+		resp, err := h.do(r.Context(), r.Method, target, r.Header, body)
+		if err != nil {
+			if rule != nil && attempt >= rule.MaxRetries {
+				slog.Error("upstream failed", "upstream", upstreamName, "attempts", attempt+1, "err", err)
+				http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			slog.Warn("upstream error, will retry", "upstream", upstreamName, "attempt", attempt+1, "err", err)
+			if rule == nil && len(h.cfg.OverloadRules) > 0 {
+				rule = &h.cfg.OverloadRules[0]
+			}
+			continue
+		}
+
+		if resp.StatusCode < 400 {
+			slog.Info("<-", "status", resp.StatusCode, "path", r.URL.Path, "upstream", upstreamName, "attempts", attempt+1, "elapsed", time.Since(start).Round(time.Millisecond))
+			captured := stream(w, resp)
+			if h.stats != nil {
+				h.stats.RecordAsync(upstreamName, r.URL.Path, captured, parser)
+			}
+			return
+		}
+
+		errBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if matched := provider.Match(h.cfg.OverloadRules, resp.StatusCode, errBody); matched != nil {
+			if rule == nil {
+				rule = matched
+			}
+			continue
+		}
+
+		forward(w, resp, errBody)
+		return
+	}
+
+	// Final attempt after max retries
+	resp, err := h.do(r.Context(), r.Method, target, r.Header, body)
+	if err != nil {
+		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	errBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	forward(w, resp, errBody)
+}
+
+func (h *multiHandler) do(ctx context.Context, method, url string, headers http.Header, body []byte) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	return h.client.Do(req)
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
