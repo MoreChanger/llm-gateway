@@ -39,6 +39,27 @@ type Config struct {
 	StatsDB string
 }
 
+// Upstream defines an upstream API endpoint.
+type Upstream struct {
+	URL      string // Upstream API URL
+	Protocol string // "anthropic" (default) or "openai"
+}
+
+// Route maps a request path to an upstream.
+type Route struct {
+	Path     string // Request path to match (exact match)
+	Upstream string // Name of the upstream to use
+}
+
+// MultiConfig is the runtime configuration for multi-protocol routing mode.
+type MultiConfig struct {
+	ListenAddr    string
+	Upstreams     map[string]Upstream // upstream name -> Upstream
+	Routes        []Route
+	OverloadRules []provider.Rule
+	StatsDB       string
+}
+
 // ---- YAML types ----
 
 type yamlDuration struct{ time.Duration }
@@ -64,6 +85,24 @@ type providerYAML struct {
 	Upstream      string     `yaml:"upstream"`
 	Protocol      string     `yaml:"protocol"`
 	OverloadRules []ruleYAML `yaml:"overload_rules"`
+}
+
+type upstreamYAML struct {
+	URL      string `yaml:"url"`
+	Protocol string `yaml:"protocol"`
+}
+
+type routeYAML struct {
+	Path     string `yaml:"path"`
+	Upstream string `yaml:"upstream"`
+}
+
+type multiFileConfig struct {
+	Listen        string                  `yaml:"listen"`
+	StatsDB       string                  `yaml:"stats_db"`
+	Upstreams     map[string]upstreamYAML `yaml:"upstreams"`
+	Routes        []routeYAML             `yaml:"routes"`
+	OverloadRules []ruleYAML              `yaml:"overload_rules"`
 }
 
 type fileConfig struct {
