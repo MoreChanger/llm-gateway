@@ -15,11 +15,12 @@ upstreams:
 routes:
   - path: /v1/messages
     upstream: anthropic
+  - path: /v1/models
+    upstream: anthropic
   - path: /v1/chat/completions
     upstream: openai
-  # 兼容客户端 base URL 带 /v1 的情况
-  - path: /chat/completions
-    upstream: openai
+  - path: /models
+    upstream: anthropic
 
 overload_rules:
   - status: 400

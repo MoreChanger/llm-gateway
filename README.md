@@ -78,6 +78,8 @@ upstreams:
 routes:
   - path: /v1/messages
     upstream: anthropic
+  - path: /v1/models
+    upstream: anthropic
   - path: /v1/chat/completions
     upstream: openai
 
@@ -141,6 +143,8 @@ upstreams:
 
 routes:
   - path: /v1/messages
+    upstream: anthropic
+  - path: /v1/models
     upstream: anthropic
   - path: /v1/chat/completions
     upstream: openai
