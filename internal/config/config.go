@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"anthropic-proxy/internal/provider"
+	"llm-gateway/internal/provider"
 
 	"gopkg.in/yaml.v3"
 )

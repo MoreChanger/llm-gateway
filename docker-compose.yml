@@ -1,6 +1,6 @@
 version: '3'
 services:
-  anthropic-proxy:
+  llm-gateway:
     build: .
     restart: unless-stopped
     ports:

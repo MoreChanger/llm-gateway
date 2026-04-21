@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"anthropic-proxy/internal/config"
-	"anthropic-proxy/internal/provider"
-	"anthropic-proxy/internal/stats"
+	"llm-gateway/internal/config"
+	"llm-gateway/internal/provider"
+	"llm-gateway/internal/stats"
 )
 
 // New returns an http.Handler that forwards every request to cfg.Upstream,

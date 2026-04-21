@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"anthropic-proxy/internal/config"
-	"anthropic-proxy/internal/proxy"
-	"anthropic-proxy/internal/stats"
+	"llm-gateway/internal/config"
+	"llm-gateway/internal/proxy"
+	"llm-gateway/internal/stats"
 )
 
 func main() {
@@ -46,7 +46,7 @@ func main() {
 }
 
 func runSingle(cfg *config.Config) {
-	slog.Info("anthropic-proxy starting (single-provider mode)",
+	slog.Info("llm-gateway starting (single-provider mode)",
 		"provider", cfg.ProviderName,
 		"listen", cfg.ListenAddr,
 		"upstream", cfg.Upstream,
@@ -79,7 +79,7 @@ func runSingle(cfg *config.Config) {
 }
 
 func runMulti(cfg *config.MultiConfig) {
-	slog.Info("anthropic-proxy starting (multi-protocol mode)",
+	slog.Info("llm-gateway starting (multi-protocol mode)",
 		"listen", cfg.ListenAddr,
 		"upstreams", len(cfg.Upstreams),
 		"routes", len(cfg.Routes))

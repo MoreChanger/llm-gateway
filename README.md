@@ -1,4 +1,4 @@
-# anthropic-proxy
+# llm-gateway
 
 支持 **Anthropic 协议**与 **OpenAI 协议**的轻量级反向代理。在上游过载时自动等待并重试，确保 Claude Code 等客户端不因接口报错而中断任务；同时异步统计 token 用量并提供可视化看板。
 
@@ -8,7 +8,7 @@
 
 ```
 Claude Code  ──►  localhost:8087  ──►  上游 Anthropic / OpenAI 兼容 API
-               (anthropic-proxy)
+               (llm-gateway)
                       │
                       │ 收到过载错误（可配置）
                       │ 自动等待 + 重试（线性退避）
@@ -44,7 +44,7 @@ docker compose up -d
 
 ```bash
 make build
-PROVIDER=jdcloud CONFIG_FILE=config.yaml ./bin/anthropic-proxy
+PROVIDER=jdcloud CONFIG_FILE=config.yaml ./bin/llm-gateway
 ```
 
 ---

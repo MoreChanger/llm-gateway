@@ -1,10 +1,10 @@
-BIN     := anthropic-proxy
-CMD     := ./cmd/anthropic-proxy
-IMAGE   := anthropic-proxy
+BIN     := llm-gateway
+CMD     := ./cmd/llm-gateway
+IMAGE   := llm-gateway
 
 .PHONY: build run test vet docker-build docker-up docker-down clean
 
-## build: compile binary to ./bin/anthropic-proxy
+## build: compile binary to ./bin/llm-gateway
 build:
 	go build -o bin/$(BIN) $(CMD)
 
